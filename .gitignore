@@ -1,0 +1,12 @@
+# Virtual Environments
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Data files (optional - if you don't want to upload large CSVs)
+*.csv
+*.xlsx
