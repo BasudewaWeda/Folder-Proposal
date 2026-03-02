@@ -110,6 +110,9 @@ class RSVD:
         self.eta = learning_rate
         self.lam = lambda_reg
         self.epochs = epochs
+
+        # List for storing loss history during training
+        self.loss_history = []
         
     def fit(self, Z):
         m, n = Z.shape
@@ -118,20 +121,37 @@ class RSVD:
         self.Sigma = np.diag(np.random.normal(scale=1./self.k, size=self.k))
         
         for epoch in range(self.epochs):
+            # 1. Stochastic Gradient Descent Update
             for u in range(m):
                 for i in range(n):
+                    # Calculate prediction for current user-item pair
                     pred = np.dot(np.dot(self.U[u, :], self.Sigma), self.V[i, :].T)
                     e_ui = Z[u, i] - pred
                     
+                    # Update each latent factor
                     for k in range(self.k):
                         U_uk = self.U[u, k]
                         V_ik = self.V[i, k]
                         Sigma_kk = self.Sigma[k, k]
                         
+                        # Calculate gradients
                         grad_U = -2 * e_ui * (Sigma_kk * V_ik) + 2 * self.lam * U_uk
                         grad_V = -2 * e_ui * (Sigma_kk * U_uk) + 2 * self.lam * V_ik
                         grad_Sigma = -2 * e_ui * (U_uk * V_ik) + 2 * self.lam * Sigma_kk
                         
+                        # Apply gradients
                         self.U[u, k] -= self.eta * grad_U
                         self.V[i, k] -= self.eta * grad_V
                         self.Sigma[k, k] -= self.eta * grad_Sigma
+
+        # Reconstruct the full matrix using current parameters
+            reconstructed_Z = np.dot(np.dot(self.U, self.Sigma), self.V.T)
+            
+            # Calculate Mean Squared Error
+            current_mse = np.mean(np.square(Z - reconstructed_Z))
+            
+            # Save to history list
+            self.loss_history.append(current_mse)
+            
+            # Print progress dynamically
+            print(f"Epoch {epoch+1:03d}/{self.epochs} | Training MSE: {current_mse:.6f}")
