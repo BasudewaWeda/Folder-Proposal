@@ -71,16 +71,21 @@ class VAE(Model):
 
             # --- PERBAIKAN MATEMATIS LOSS ---
             
-            # A. Reconstruction Loss
-            # Ambil jumlah film secara dinamis dari dimensi data (1682)
+            # A. Reconstruction Loss (Masked MSE)
+            # Mask, 1 jika rating > 0, 0 jika rating == 0
+            mask = tf.cast(data > 0, tf.float32)
+
+            # Hitung Squarred Error hanya pada elemen mask
+            squared_diff = tf.square(data - reconstruction)
+            masked_squared_error = squared_diff * mask
+
+            # Hitung rata-rata MSE berdasarkan jumlah elemen yang ada ratingnya
+            # Ditambah epsilon (1e-8) agar tidak terjadi pembagian dengan nol
+            mse_loss = tf.reduce_sum(masked_squared_error) / (tf.reduce_sum(mask) + 1e-8)
+
+            # Kalikan dengan dimensi item (1682) agar skalanya seimbang dengan KL Loss
             num_items = tf.cast(tf.shape(data)[1], tf.float32)
-            
-            # BCE akan otomatis menghitung rata-rata (mean) error per baris (user)
-            bce_mean = tf.keras.losses.binary_crossentropy(data, reconstruction)
-            
-            # Kalikan rata-rata dengan jumlah film untuk mendapatkan Total (Sum) error per user, 
-            # lalu hitung rata-rata akhirnya untuk seluruh batch
-            reconstruction_loss = tf.reduce_mean(bce_mean) * num_items
+            reconstruction_loss = mse_loss * num_items
 
             # B. KL Divergence Loss
             kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
@@ -144,7 +149,7 @@ class RSVD:
                         self.V[i, k] -= self.eta * grad_V
                         self.Sigma[k, k] -= self.eta * grad_Sigma
 
-        # Reconstruct the full matrix using current parameters
+            # Reconstruct the full matrix using current parameters
             reconstructed_Z = np.dot(np.dot(self.U, self.Sigma), self.V.T)
             
             # Calculate Mean Squared Error
