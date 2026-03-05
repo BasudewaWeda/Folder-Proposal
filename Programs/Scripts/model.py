@@ -40,10 +40,12 @@ class Decoder(Model):
         return self.reconstruction(x)
 
 class VAE(Model):
-    def __init__(self, encoder, decoder, **kwargs):
+    # Tambahkan parameter beta di init (default 1.0 seperti VAE biasa)
+    def __init__(self, encoder, decoder, beta=1.0, **kwargs):
         super(VAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
+        self.beta = beta  # Simpan nilai beta ke dalam state model
         self.sampling = Sampling()
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.reconstruction_loss_tracker = tf.keras.metrics.Mean(name="reconstruction_loss")
@@ -59,31 +61,19 @@ class VAE(Model):
         return self.decoder(z)
 
     def train_step(self, data):
-        # Membongkar tuple dari fit()
         if isinstance(data, tuple):
             data = data[0]
 
         with tf.GradientTape() as tape:
-            # 1. Forward Pass
             z_mean, z_log_var = self.encoder(data)
             z = self.sampling([z_mean, z_log_var])
             reconstruction = self.decoder(z)
 
-            # --- PERBAIKAN MATEMATIS LOSS ---
-            
             # A. Reconstruction Loss (Masked MSE)
-            # Mask, 1 jika rating > 0, 0 jika rating == 0
             mask = tf.cast(data > 0, tf.float32)
-
-            # Hitung Squarred Error hanya pada elemen mask
             squared_diff = tf.square(data - reconstruction)
-            masked_squared_error = squared_diff * mask
-
-            # Hitung rata-rata MSE berdasarkan jumlah elemen yang ada ratingnya
-            # Ditambah epsilon (1e-8) agar tidak terjadi pembagian dengan nol
-            mse_loss = tf.reduce_sum(masked_squared_error) / (tf.reduce_sum(mask) + 1e-8)
-
-            # Kalikan dengan dimensi item (1682) agar skalanya seimbang dengan KL Loss
+            masked_se = squared_diff * mask
+            mse_loss = tf.reduce_sum(masked_se) / (tf.reduce_sum(mask) + 1e-8)
             num_items = tf.cast(tf.shape(data)[1], tf.float32)
             reconstruction_loss = mse_loss * num_items
 
@@ -91,14 +81,14 @@ class VAE(Model):
             kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
 
-            # C. Total Loss
-            total_loss = reconstruction_loss + kl_loss
+            # C. Total Loss dengan Hyperparameter Beta
+            # Gunakan self.beta yang didapat dari inisialisasi model
+            total_loss = reconstruction_loss + (self.beta * kl_loss)
 
-        # 2. Backpropagation
+        # Backpropagation
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         
-        # 3. Update Metrics
         self.total_loss_tracker.update_state(total_loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.kl_loss_tracker.update_state(kl_loss)
@@ -110,7 +100,7 @@ class VAE(Model):
         }
 
 class RSVD:
-    def __init__(self, n_factors=50, learning_rate=0.01, lambda_reg=0.1, epochs=100):
+    def __init__(self, n_factors=50, learning_rate=0.001, lambda_reg=0.001, epochs=100):
         self.k = n_factors
         self.eta = learning_rate
         self.lam = lambda_reg
@@ -139,16 +129,13 @@ class RSVD:
                         V_ik = self.V[i, k]
                         Sigma_kk = self.Sigma[k, k]
                         
-                        # Calculate gradients
-                        grad_U = -2 * e_ui * (Sigma_kk * V_ik) + 2 * self.lam * U_uk
-                        grad_V = -2 * e_ui * (Sigma_kk * U_uk) + 2 * self.lam * V_ik
-                        grad_Sigma = -2 * e_ui * (U_uk * V_ik) + 2 * self.lam * Sigma_kk
+                        # Calculate and apply gradient
+                        self.U[u, k] += self.eta * (e_ui * Sigma_kk * V_ik - self.lam * U_uk)
+                        self.V[i, k] += self.eta * (e_ui * Sigma_kk * U_uk - self.lam * V_ik)
                         
-                        # Apply gradients
-                        self.U[u, k] -= self.eta * grad_U
-                        self.V[i, k] -= self.eta * grad_V
-                        self.Sigma[k, k] -= self.eta * grad_Sigma
-
+                        # Sigma DIBEBASKAN dari penalti lambda karena ia diupdate jutaan kali!
+                        self.Sigma[k, k] += self.eta * (e_ui * U_uk * V_ik)
+                        
             # Reconstruct the full matrix using current parameters
             reconstructed_Z = np.dot(np.dot(self.U, self.Sigma), self.V.T)
             
