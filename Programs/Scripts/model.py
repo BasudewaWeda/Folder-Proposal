@@ -105,45 +105,56 @@ class RSVD:
         self.eta = learning_rate
         self.lam = lambda_reg
         self.epochs = epochs
-
-        # List for storing loss history during training
         self.loss_history = []
         
     def fit(self, Z):
         m, n = Z.shape
+        
+        # 1. Hitung Rata-rata Global (mu) dari matriks Z
+        self.mu = np.mean(Z)
+        
+        # 2. Inisialisasi array Bias untuk Pengguna (b_u) dan Item (b_i) dengan angka 0
+        self.b_u = np.zeros(m)
+        self.b_i = np.zeros(n)
+        
+        # Inisialisasi matriks Laten
         self.U = np.random.normal(scale=1./self.k, size=(m, self.k))
         self.V = np.random.normal(scale=1./self.k, size=(n, self.k))
         self.Sigma = np.diag(np.random.normal(scale=1./self.k, size=self.k))
         
         for epoch in range(self.epochs):
-            # 1. Stochastic Gradient Descent Update
             for u in range(m):
                 for i in range(n):
-                    # Calculate prediction for current user-item pair
-                    pred = np.dot(np.dot(self.U[u, :], self.Sigma), self.V[i, :].T)
+                    # Hitung perkalian titik (dot product) laten
+                    dot_product = np.dot(np.dot(self.U[u, :], self.Sigma), self.V[i, :].T)
+                    
+                    # --- PERUBAHAN: Prediksi sekarang melibatkan rata-rata global dan bias ---
+                    pred = self.mu + self.b_u[u] + self.b_i[i] + dot_product
+                    
+                    # Hitung Error
                     e_ui = Z[u, i] - pred
                     
-                    # Update each latent factor
+                    # --- PERUBAHAN: Update Bias Pengguna dan Bias Item ---
+                    # Bias juga dikurangi penalti (lambda) agar tidak membesar tanpa kendali
+                    self.b_u[u] += self.eta * (e_ui - self.lam * self.b_u[u])
+                    self.b_i[i] += self.eta * (e_ui - self.lam * self.b_i[i])
+                    
+                    # Update matriks Laten (Tetap sama seperti sebelumnya)
                     for k in range(self.k):
                         U_uk = self.U[u, k]
                         V_ik = self.V[i, k]
                         Sigma_kk = self.Sigma[k, k]
                         
-                        # Calculate and apply gradient
                         self.U[u, k] += self.eta * (e_ui * Sigma_kk * V_ik - self.lam * U_uk)
                         self.V[i, k] += self.eta * (e_ui * Sigma_kk * U_uk - self.lam * V_ik)
-                        
-                        # Sigma DIBEBASKAN dari penalti lambda karena ia diupdate jutaan kali!
                         self.Sigma[k, k] += self.eta * (e_ui * U_uk * V_ik)
-                        
-            # Reconstruct the full matrix using current parameters
-            reconstructed_Z = np.dot(np.dot(self.U, self.Sigma), self.V.T)
+
+            # --- PERUBAHAN: Rekonstruksi Evaluasi dengan Bias ---
+            # np.newaxis digunakan untuk menyebarkan (broadcast) array 1D menjadi 2D
+            bias_matrix = self.mu + self.b_u[:, np.newaxis] + self.b_i[np.newaxis, :]
+            latent_matrix = np.dot(np.dot(self.U, self.Sigma), self.V.T)
             
-            # Calculate Mean Squared Error
+            reconstructed_Z = bias_matrix + latent_matrix
+            
             current_mse = np.mean(np.square(Z - reconstructed_Z))
-            
-            # Save to history list
             self.loss_history.append(current_mse)
-            
-            # Print progress dynamically
-            print(f"Epoch {epoch+1:03d}/{self.epochs} | Training MSE: {current_mse:.6f}")
