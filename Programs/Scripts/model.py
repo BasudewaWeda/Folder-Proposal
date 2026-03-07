@@ -117,9 +117,12 @@ class RSVD:
         self.b_u = np.zeros(m)
         self.b_i = np.zeros(n)
         
-        self.U = np.random.normal(scale=1./self.k, size=(m, self.k))
-        self.V = np.random.normal(scale=1./self.k, size=(n, self.k))
-        self.Sigma = np.diag(np.random.normal(scale=1./self.k, size=self.k))
+        # 1. Besarkan sedikit inisialisasi awal U dan V
+        self.U = np.random.normal(scale=0.1, size=(m, self.k))
+        self.V = np.random.normal(scale=0.1, size=(n, self.k))
+        
+        # 2. Inisialisasi Sigma dengan angka 1 (Matriks Identitas)
+        self.Sigma = np.eye(self.k)
         
         for epoch in range(self.epochs):
             for u in range(m):
