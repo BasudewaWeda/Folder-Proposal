@@ -99,7 +99,7 @@ class VAE(Model):
     def train_step(self, data):
         """
         Modifikasi proses training: VAE HANYA belajar dari rating yang ada nilainya (> 0),
-        dan mengabaikan (masking) film yang belum pernah ditonton pengguna.
+        dan mengabaikan (masking) film yang belum diberi rating oleh pengguna.
         """
         if isinstance(data, tuple):
             data = data[0]
@@ -164,6 +164,7 @@ class RSVD:
         nonzero_ratings = Z[Z > 0]
         self.mu = np.mean(nonzero_ratings) if len(nonzero_ratings) > 0 else 0
         
+        # Bias user (pemberi rating) dan item (film)
         self.b_u = np.zeros(m)
         self.b_i = np.zeros(n)
         
