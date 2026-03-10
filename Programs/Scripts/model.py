@@ -211,7 +211,15 @@ class RSVD:
             # Masking saat evaluasi agar sel kosong tidak dihitung error
             mask = (Z > 0)
             current_mse = np.sum(np.square(Z[mask] - reconstructed_Z[mask])) / np.sum(mask)
-            self.loss_history.append(current_mse)
+
+            # Hitung penalti regularisasi L2 sesuai rumus (8) proposal:
+            # lambda * (||U||^2_F + ||V||^2_F)
+            # Catatan: Sigma tidak diregularisasi (lihat Catatan Desain di docstring)
+            l2_penalty = self.lam * (np.sum(np.square(self.U)) + np.sum(np.square(self.V)))
+
+            # Total Loss = MSE + L2 Penalty
+            current_loss = current_mse + l2_penalty
+            self.loss_history.append(current_loss)
 
             # Print progress secara dinamis
-            print(f"Epoch {epoch+1:03d}/{self.epochs} | Training MSE: {current_mse:.6f}")
+            print(f"Epoch {epoch+1:03d}/{self.epochs} | MSE: {current_mse:.6f} | L2: {l2_penalty:.6f} | Total Loss: {current_loss:.6f}")
