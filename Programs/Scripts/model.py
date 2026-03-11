@@ -102,7 +102,7 @@ class VAE(Model):
         dan mengabaikan (masking) film yang belum diberi rating oleh pengguna.
         """
         if isinstance(data, tuple):
-            data = data[0]
+            data = data[0] # ambil x saja, y dibuang
 
         with tf.GradientTape() as tape:
             z_mean, z_log_var = self.encoder(data)
