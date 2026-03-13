@@ -78,7 +78,11 @@ class VAE(Model):
         super(VAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
-        self.beta = beta  # Simpan nilai beta ke dalam state model
+        
+        # Simpan beta sebagai tf.Variable agar nilainya bisa diperbarui secara
+        # dinamis oleh KLAnnealingCallback di setiap epoch tanpa perlu rebuild model
+        self.beta = tf.Variable(float(beta), trainable=False, dtype=tf.float32, name='beta')
+
         self.sampling = Sampling()
 
         # Pelacak nilai metrik selama proses training
@@ -143,6 +147,58 @@ class VAE(Model):
             "reconstruction_loss": self.reconstruction_loss_tracker.result(),
             "kl_loss": self.kl_loss_tracker.result(),
         }
+    
+class KLAnnealingCallback(tf.keras.callbacks.Callback):
+    """
+    Callback untuk menaikkan nilai beta VAE secara bertahap (linear annealing)
+    dari 0.0 menuju beta_target selama fase annealing.
+ 
+    Tujuan:
+    - Di epoch-epoch awal, beta = 0 sehingga model fokus meminimalkan
+      reconstruction loss terlebih dahulu tanpa tekanan dari KL divergence.
+    - Secara bertahap, beta dinaikkan agar model mulai memperhatikan
+      struktur ruang laten dan mencegah posterior collapse.
+    - Setelah annealing_epochs tercapai, beta tetap di nilai beta_target.
+ 
+    Jadwal annealing (linear):
+        epoch 0                    → beta = 0.0
+        epoch annealing_epochs - 1 → beta = beta_target
+        epoch >= annealing_epochs  → beta = beta_target (konstan)
+    """
+    def __init__(self, beta_target, annealing_epochs):
+        """
+        Args:
+            beta_target      : nilai beta akhir yang ingin dicapai,
+                               diambil dari hasil hyperparameter tuning
+            annealing_epochs : jumlah epoch untuk menaikkan beta dari 0 ke beta_target
+        """
+        super(KLAnnealingCallback, self).__init__()
+        self.beta_target      = beta_target
+        self.annealing_epochs = annealing_epochs
+ 
+    def on_epoch_begin(self, epoch, logs=None):
+        """
+        Dipanggil otomatis oleh Keras di awal setiap epoch.
+        Menghitung dan menetapkan nilai beta baru secara linear.
+        """
+        # Hitung proporsi kemajuan annealing (0.0 hingga 1.0)
+        if self.annealing_epochs > 0:
+            progress = min(epoch / self.annealing_epochs, 1.0)
+        else:
+            progress = 1.0
+ 
+        # Hitung nilai beta saat ini secara linear
+        beta_now = progress * self.beta_target
+ 
+        # Perbarui tf.Variable beta di model tanpa perlu rebuild
+        self.model.beta.assign(beta_now)
+ 
+    def on_epoch_end(self, epoch, logs=None):
+        """
+        Tampilkan nilai beta aktif di akhir setiap epoch untuk monitoring.
+        """
+        current_beta = float(self.model.beta.numpy())
+        print(f"  [KL Annealing] Epoch {epoch + 1}: beta = {current_beta:.6f} / {self.beta_target}")
 
 class RSVD:
     """
