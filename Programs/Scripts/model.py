@@ -51,15 +51,22 @@ class Encoder(Model):
 
 class Decoder(Model):
     """
-    Decoder bertugas membangun ulang (rekonstruksi) matriks laten 
+    Decoder bertugas membangun ulang (rekonstruksi) matriks laten
     kembali menjadi bentuk tebakan rating asli (dengan dimensi awal).
+
+    Perubahan dari versi MSE:
+    - Aktivasi output diganti dari Sigmoid ke Linear (None).
+    - Output berupa logit mentah yang akan dilewatkan ke Softmax
+      di dalam train_step VAE untuk menghitung multinomial log-likelihood.
+    - Softmax tidak dipasang di sini agar numerically stable log-softmax
+      bisa dihitung langsung dari logit (tf.nn.log_softmax).
     """
     def __init__(self, hidden_dims=[256, 512], output_dim=1682, **kwargs):
         super(Decoder, self).__init__(**kwargs)
         self.hidden_layers = [Dense(dim, activation='relu') for dim in hidden_dims]
 
-        # Layer output menggunakan Sigmoid karena data input sudah dinormalisasi ke rentang 0 - 1
-        self.reconstruction = Dense(output_dim, activation='sigmoid', name='decoder_output')
+        # Layer output tanpa aktivasi (logit mentah) — Softmax diterapkan di train_step
+        self.reconstruction = Dense(output_dim, activation=None, name='decoder_output')
 
     def call(self, inputs):
         x = inputs
@@ -70,15 +77,24 @@ class Decoder(Model):
 class VAE(Model):
     """
     Model utama yang menggabungkan Encoder, Sampling, dan Decoder.
-    Termasuk penyesuaian perhitungan Loss Function menggunakan Beta-VAE 
-    untuk mencegah masalah Posterior Collapse.
+
+    Perubahan dari versi MSE:
+    - Reconstruction loss diganti dari Masked MSE ke Masked Multinomial Log-Likelihood
+      mengikuti pendekatan Liang et al. (2018) "Variational Autoencoders for
+      Collaborative Filtering".
+    - Decoder mengeluarkan logit mentah, lalu log-softmax dihitung di train_step
+      untuk stabilitas numerik.
+    - Formula reconstruction loss:
+        loss = -sum( x_norm * log_softmax(logit) ) untuk sel yang ada rating
+      di mana x_norm adalah distribusi rating yang sudah dinormalisasi per pengguna
+      (agar jumlahnya = 1, sesuai asumsi multinomial).
+    - KL Annealing tetap digunakan via KLAnnealingCallback.
     """
-    # Tambahkan parameter beta di init (default 1.0 seperti VAE biasa)
     def __init__(self, encoder, decoder, beta=1.0, **kwargs):
         super(VAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
-        
+
         # Simpan beta sebagai tf.Variable agar nilainya bisa diperbarui secara
         # dinamis oleh KLAnnealingCallback di setiap epoch tanpa perlu rebuild model
         self.beta = tf.Variable(float(beta), trainable=False, dtype=tf.float32, name='beta')
@@ -96,33 +112,53 @@ class VAE(Model):
 
     def call(self, inputs):
         # Forward pass biasa untuk tahap evaluasi/testing
+        # Output berupa logit — gunakan tf.nn.softmax di luar jika butuh probabilitas
         z_mean, z_log_var = self.encoder(inputs)
         z = self.sampling([z_mean, z_log_var])
         return self.decoder(z)
 
     def train_step(self, data):
         """
-        Modifikasi proses training: VAE HANYA belajar dari rating yang ada nilainya (> 0),
-        dan mengabaikan (masking) film yang belum diberi rating oleh pengguna.
+        Modifikasi proses training: menggunakan Masked Multinomial Log-Likelihood
+        sebagai reconstruction loss, hanya menghitung loss pada sel yang ada rating.
+
+        Langkah:
+        1. Encoder menghasilkan z_mean dan z_log_var
+        2. Sampling menghasilkan z via reparameterization trick
+        3. Decoder menghasilkan logit mentah
+        4. log-softmax dihitung dari logit untuk stabilitas numerik
+        5. Reconstruction loss = -sum( x_norm * log_softmax ) per pengguna,
+           hanya pada item yang ada rating (masking)
+        6. KL loss dihitung seperti biasa
+        7. Total loss = reconstruction_loss + beta * kl_loss
         """
         if isinstance(data, tuple):
-            data = data[0] # ambil x saja, y dibuang
+            data = data[0]  # ambil x saja, y dibuang
 
         with tf.GradientTape() as tape:
             z_mean, z_log_var = self.encoder(data)
             z = self.sampling([z_mean, z_log_var])
-            reconstruction = self.decoder(z)
+            logits = self.decoder(z)
 
-            # A. Reconstruction Loss (Masked MSE)
+            # A. Reconstruction Loss (Masked Multinomial Log-Likelihood)
             # Membuat mask bernilai 1 jika rating ada, dan 0 jika kosong
             mask = tf.cast(data > 0, tf.float32)
-            squared_diff = tf.square(data - reconstruction)
-            masked_se = squared_diff * mask
 
-            # Menghitung rata-rata error murni
-            mse_loss = tf.reduce_sum(masked_se) / (tf.reduce_sum(mask) + 1e-8)
-            num_items = tf.cast(tf.shape(data)[1], tf.float32)
-            reconstruction_loss = mse_loss * num_items
+            # Normalisasi rating per pengguna menjadi distribusi (jumlah per baris = 1)
+            # Hanya item yang dirating yang dihitung — item kosong diabaikan
+            masked_data = data * mask
+            row_sums    = tf.reduce_sum(masked_data, axis=1, keepdims=True) + 1e-8
+            x_norm      = masked_data / row_sums
+
+            # Hitung log-softmax dari logit secara numerically stable
+            log_softmax = tf.nn.log_softmax(logits, axis=1)
+
+            # Hitung negative log-likelihood hanya pada item yang ada rating
+            # x_norm * log_softmax: nol otomatis untuk item yang tidak dirating
+            nll_per_item = -tf.reduce_sum(x_norm * log_softmax * mask, axis=1)
+
+            # Rata-rata loss di semua pengguna
+            reconstruction_loss = tf.reduce_mean(nll_per_item)
 
             # B. KL Divergence Loss
             # Berfungsi meregulasi agar distribusi ruang laten mendekati normal Gaussian
@@ -130,36 +166,35 @@ class VAE(Model):
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
 
             # C. Total Loss dengan Hyperparameter Beta
-            # Gunakan self.beta yang didapat dari inisialisasi model
             total_loss = reconstruction_loss + (self.beta * kl_loss)
 
         # Backpropagation: Menghitung gradien dan memperbarui bobot (weights)
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
-        
+
         # Memperbarui history loss untuk ditampilkan di progress bar
         self.total_loss_tracker.update_state(total_loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.kl_loss_tracker.update_state(kl_loss)
-        
+
         return {
             "loss": self.total_loss_tracker.result(),
             "reconstruction_loss": self.reconstruction_loss_tracker.result(),
             "kl_loss": self.kl_loss_tracker.result(),
         }
-    
+
 class KLAnnealingCallback(tf.keras.callbacks.Callback):
     """
     Callback untuk menaikkan nilai beta VAE secara bertahap (linear annealing)
     dari 0.0 menuju beta_target selama fase annealing.
- 
+
     Tujuan:
     - Di epoch-epoch awal, beta = 0 sehingga model fokus meminimalkan
       reconstruction loss terlebih dahulu tanpa tekanan dari KL divergence.
     - Secara bertahap, beta dinaikkan agar model mulai memperhatikan
       struktur ruang laten dan mencegah posterior collapse.
     - Setelah annealing_epochs tercapai, beta tetap di nilai beta_target.
- 
+
     Jadwal annealing (linear):
         epoch 0                    → beta = 0.0
         epoch annealing_epochs - 1 → beta = beta_target
@@ -175,7 +210,7 @@ class KLAnnealingCallback(tf.keras.callbacks.Callback):
         super(KLAnnealingCallback, self).__init__()
         self.beta_target      = beta_target
         self.annealing_epochs = annealing_epochs
- 
+
     def on_epoch_begin(self, epoch, logs=None):
         """
         Dipanggil otomatis oleh Keras di awal setiap epoch.
@@ -186,19 +221,20 @@ class KLAnnealingCallback(tf.keras.callbacks.Callback):
             progress = min(epoch / self.annealing_epochs, 1.0)
         else:
             progress = 1.0
- 
+
         # Hitung nilai beta saat ini secara linear
         beta_now = progress * self.beta_target
- 
+
         # Perbarui tf.Variable beta di model tanpa perlu rebuild
         self.model.beta.assign(beta_now)
- 
+
     def on_epoch_end(self, epoch, logs=None):
         """
         Tampilkan nilai beta aktif di akhir setiap epoch untuk monitoring.
         """
         current_beta = float(self.model.beta.numpy())
         print(f"  [KL Annealing] Epoch {epoch + 1}: beta = {current_beta:.6f} / {self.beta_target}")
+
 
 class RSVD:
     """
@@ -378,3 +414,227 @@ class RSVD:
                     self.b_u   = best_b_u
                     self.b_i   = best_b_i
                     break
+
+class RSVDWithFeatures:
+    """
+    Varian RSVD yang diperkaya dengan fitur laten dari VAE (Feature Stacking).
+
+    Ide utama:
+    - VAE mengekstrak representasi laten (z_mean) dari matriks rating.
+    - z_mean setiap pengguna digabungkan sebagai kolom tambahan ke matriks rating asli,
+      sehingga RSVD bisa memanfaatkan informasi non-linear dari VAE secara langsung.
+    - RSVD tetap bekerja di ruang rating (bukan ruang laten), sehingga konteks
+      user-item tetap terjaga — berbeda dari arsitektur awal di mana RSVD
+      memfaktorisasi ruang laten VAE secara langsung.
+
+    Perbedaan dari RSVD biasa:
+    - Input fit() adalah (Z, z_mean) bukan hanya Z.
+    - Matriks Z diperluas: Z_aug = [Z | z_mean] dengan dimensi (m x (n + latent_dim)).
+    - Prediksi dilakukan di Z_aug, lalu kolom laten dipotong — hanya n kolom rating
+      yang diambil sebagai output prediksi akhir.
+
+    Catatan desain:
+    - Kolom laten dari z_mean tidak dikenai mask (karena selalu terisi, bukan sparse).
+    - Regularisasi, early stopping, dan struktur training identik dengan RSVD biasa.
+    - Sigma tidak diregularisasi (alasan sama dengan RSVD biasa — lihat docstring RSVD).
+    """
+    def __init__(self, n_factors=50, learning_rate=0.001, lambda_reg=0.001, epochs=100, patience=5):
+        self.k        = n_factors      # Jumlah dimensi laten
+        self.eta      = learning_rate  # Kecepatan belajar (Learning rate)
+        self.lam      = lambda_reg     # Penalti regularisasi untuk mencegah overfitting
+        self.epochs   = epochs
+        self.patience = patience       # Jumlah epoch tanpa perbaikan val MSE sebelum dihentikan
+        self.loss_history = []         # Menyimpan nilai Total Loss (MSE + L2 Penalty) setiap epoch
+        self.n_items  = None           # Jumlah item rating asli (disimpan saat fit untuk prediksi)
+
+    def fit(self, Z, z_mean_features, val_ratio=0.1, random_seed=42):
+        """
+        Melatih RSVDWithFeatures dengan matriks rating yang diperkaya fitur laten VAE.
+
+        Args:
+            Z                : np.ndarray matriks rating asli (users x items), nilai 0 = belum dirating
+            z_mean_features  : np.ndarray matriks laten VAE (users x latent_dim) hasil encoder
+            val_ratio        : float proporsi rating yang dipakai sebagai validation set (default 10%)
+            random_seed      : int seed untuk reproduksibilitas pembagian validation split
+        """
+        m, n = Z.shape
+
+        # Simpan jumlah item asli agar prediksi bisa dipotong dengan benar
+        self.n_items = n
+
+        # -------------------------------------------------------
+        # Feature Stacking: Gabungkan z_mean ke matriks rating
+        # Z_aug memiliki dimensi (m x (n + latent_dim))
+        # Kolom 0..n-1   : rating asli (sparse)
+        # Kolom n..n+d-1 : fitur laten VAE (dense, selalu terisi)
+        # -------------------------------------------------------
+        Z_aug = np.concatenate([Z, z_mean_features], axis=1)
+        m_aug, n_aug = Z_aug.shape
+
+        # -------------------------------------------------------
+        # Validation Split — hanya dari kolom rating asli (sparse)
+        # Kolom laten tidak dimasukkan ke validation karena selalu terisi
+        # -------------------------------------------------------
+        np.random.seed(random_seed)
+
+        # Ambil koordinat semua rating yang ada nilainya (hanya di kolom rating asli)
+        rated_indices = np.argwhere(Z > 0)
+        n_val         = int(len(rated_indices) * val_ratio)
+
+        # Pilih indeks validation secara acak tanpa penggantian
+        val_chosen = np.random.choice(len(rated_indices), n_val, replace=False)
+        val_idx    = rated_indices[val_chosen]
+        val_rows   = val_idx[:, 0]
+        val_cols   = val_idx[:, 1]
+
+        # Simpan nilai rating asli untuk evaluasi validation
+        val_true = Z[val_rows, val_cols].copy()
+
+        # Buat training matrix: salin Z_aug lalu hapus rating validation di kolom rating asli
+        Z_train = Z_aug.copy()
+        Z_train[val_rows, val_cols] = 0.0
+
+        print(f"[INFO] Total rating      : {len(rated_indices)}")
+        print(f"[INFO] Training ratings  : {len(rated_indices) - n_val}")
+        print(f"[INFO] Validation ratings: {n_val:,}")
+        print(f"[INFO] Dimensi Z_aug     : {Z_aug.shape} (items asli: {n}, fitur laten: {z_mean_features.shape[1]})")
+
+        # -------------------------------------------------------
+        # Inisialisasi Parameter
+        # -------------------------------------------------------
+
+        # Hitung rata-rata global HANYA dari rating training (hanya kolom rating asli)
+        nonzero_ratings = Z[Z > 0]
+        self.mu = np.mean(nonzero_ratings) if len(nonzero_ratings) > 0 else 0
+
+        # Bias user dan item (mencakup semua kolom Z_aug termasuk kolom laten)
+        self.b_u = np.zeros(m_aug)
+        self.b_i = np.zeros(n_aug)
+
+        # Inisialisasi U dan V untuk dimensi Z_aug
+        self.U     = np.random.normal(scale=0.1, size=(m_aug, self.k))
+        self.V     = np.random.normal(scale=0.1, size=(n_aug, self.k))
+
+        # Inisialisasi Sigma dengan Matriks Identitas
+        self.Sigma = np.eye(self.k)
+
+        # Variabel untuk early stopping
+        best_val_mse  = float('inf')
+        no_improve    = 0
+
+        # Snapshot bobot terbaik
+        best_U, best_V, best_Sigma = None, None, None
+        best_b_u, best_b_i         = None, None
+
+        # -------------------------------------------------------
+        # Training Loop
+        # Mask untuk kolom laten: kolom ini selalu terisi (tidak di-mask)
+        # -------------------------------------------------------
+        for epoch in range(self.epochs):
+            for u in range(m_aug):
+                for i in range(n_aug):
+                    # Tentukan apakah sel ini perlu dilatih:
+                    # - Kolom rating asli (i < n): hanya jika ada rating (> 0)
+                    # - Kolom laten (i >= n): selalu dilatih karena selalu terisi
+                    if i < n:
+                        should_train = Z_train[u, i] > 0
+                    else:
+                        should_train = True
+
+                    if should_train:
+                        # Prediksi: Bias Global + Bias User + Bias Item + (U * Sigma * V^T)
+                        dot_product = np.dot(np.dot(self.U[u, :], self.Sigma), self.V[i, :].T)
+                        pred        = self.mu + self.b_u[u] + self.b_i[i] + dot_product
+
+                        # Hitung error
+                        e_ui = Z_train[u, i] - pred
+
+                        # Update Bias menggunakan Gradient Descent & L2 Regularization
+                        self.b_u[u] += self.eta * (e_ui - self.lam * self.b_u[u])
+                        self.b_i[i] += self.eta * (e_ui - self.lam * self.b_i[i])
+
+                        # Update Matriks Laten
+                        for k in range(self.k):
+                            U_uk     = self.U[u, k]
+                            V_ik     = self.V[i, k]
+                            Sigma_kk = self.Sigma[k, k]
+
+                            self.U[u, k]     += self.eta * (e_ui * Sigma_kk * V_ik - self.lam * U_uk)
+                            self.V[i, k]     += self.eta * (e_ui * Sigma_kk * U_uk - self.lam * V_ik)
+                            self.Sigma[k, k] += self.eta * (e_ui * U_uk * V_ik)
+
+            # -------------------------------------------------------
+            # Evaluasi akhir epoch
+            # -------------------------------------------------------
+
+            # Rekonstruksi matriks penuh (Z_aug)
+            bias_matrix     = self.mu + self.b_u[:, np.newaxis] + self.b_i[np.newaxis, :]
+            latent_matrix   = np.dot(np.dot(self.U, self.Sigma), self.V.T)
+            reconstructed_Z = bias_matrix + latent_matrix
+
+            # Hitung training MSE (hanya kolom rating asli, sel tidak kosong)
+            train_mask  = (Z_train[:, :n] > 0)
+            current_mse = np.sum(np.square(Z_train[:, :n][train_mask] - reconstructed_Z[:, :n][train_mask])) / np.sum(train_mask)
+
+            # Hitung validation MSE (pada kolom rating asli yang disisihkan)
+            val_pred = reconstructed_Z[val_rows, val_cols]
+            val_mse  = np.mean(np.square(val_true - val_pred))
+
+            # Hitung penalti regularisasi L2
+            l2_penalty   = self.lam * (np.sum(np.square(self.U)) + np.sum(np.square(self.V)))
+
+            # Total Loss = Training MSE + L2 Penalty
+            current_loss = current_mse + l2_penalty
+            self.loss_history.append(current_loss)
+
+            print(f"Epoch {epoch+1:03d}/{self.epochs} | Train MSE: {current_mse:.6f} | Val MSE: {val_mse:.6f} | L2: {l2_penalty:.6f} | Total Loss: {current_loss:.6f}")
+
+            # -------------------------------------------------------
+            # Early Stopping — pantau validation MSE
+            # -------------------------------------------------------
+            if val_mse < best_val_mse:
+                best_val_mse = val_mse
+                no_improve   = 0
+
+                # Simpan snapshot bobot terbaik
+                best_U     = self.U.copy()
+                best_V     = self.V.copy()
+                best_Sigma = self.Sigma.copy()
+                best_b_u   = self.b_u.copy()
+                best_b_i   = self.b_i.copy()
+            else:
+                no_improve += 1
+                if no_improve >= self.patience:
+                    print(f"\n[Early Stopping] Tidak ada perbaikan Val MSE selama {self.patience} epoch.")
+                    print(f"[Early Stopping] Berhenti di epoch {epoch+1}. Best Val MSE: {best_val_mse:.6f}")
+
+                    # Kembalikan bobot ke snapshot terbaik
+                    self.U     = best_U
+                    self.V     = best_V
+                    self.Sigma = best_Sigma
+                    self.b_u   = best_b_u
+                    self.b_i   = best_b_i
+                    break
+
+    def predict(self, z_mean_features):
+        """
+        Menghasilkan prediksi rating untuk seluruh pengguna.
+
+        Args:
+            z_mean_features : np.ndarray matriks laten VAE (users x latent_dim)
+                              yang sama digunakan saat fit() — diperlukan untuk
+                              menyusun ulang Z_aug saat prediksi
+
+        Returns:
+            np.ndarray prediksi rating dengan dimensi (users x n_items)
+            — kolom laten sudah dipotong, hanya rating asli yang dikembalikan
+        """
+        m = z_mean_features.shape[0]
+
+        # Susun ulang bias dan rekonstruksi menggunakan bobot yang sudah dilatih
+        bias_matrix     = self.mu + self.b_u[:m, np.newaxis] + self.b_i[np.newaxis, :]
+        latent_matrix   = np.dot(np.dot(self.U[:m, :], self.Sigma), self.V.T)
+        reconstructed   = bias_matrix + latent_matrix
+
+        # Potong: hanya ambil kolom rating asli (0..n_items-1), buang kolom laten
+        return reconstructed[:, :self.n_items]

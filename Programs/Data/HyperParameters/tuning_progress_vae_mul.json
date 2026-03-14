@@ -1,0 +1,14 @@
+{
+    "best_loss": 0.541085422039032,
+    "best_params": {
+        "latent_dim": 20,
+        "learning_rate": 0.005,
+        "batch_size": 128,
+        "dropout_rate": 0.1,
+        "beta": 0.01,
+        "hidden_dims": [
+            1024,
+            512
+        ]
+    }
+}
