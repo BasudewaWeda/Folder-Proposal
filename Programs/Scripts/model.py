@@ -54,19 +54,17 @@ class Decoder(Model):
     Decoder bertugas membangun ulang (rekonstruksi) matriks laten
     kembali menjadi bentuk tebakan rating asli (dengan dimensi awal).
 
-    Perubahan dari versi MSE:
-    - Aktivasi output diganti dari Sigmoid ke Linear (None).
-    - Output berupa logit mentah yang akan dilewatkan ke Softmax
-      di dalam train_step VAE untuk menghitung multinomial log-likelihood.
-    - Softmax tidak dipasang di sini agar numerically stable log-softmax
-      bisa dihitung langsung dari logit (tf.nn.log_softmax).
+    Menggunakan aktivasi Sigmoid agar output berada di rentang (0, 1)
+    sehingga bisa didenormalisasi ke skala rating 1-5 saat prediksi.
+    Loss function di train_step VAE menggunakan Multinomial Log-Likelihood
+    yang dihitung dari distribusi output sigmoid yang dinormalisasi per pengguna.
     """
     def __init__(self, hidden_dims=[256, 512], output_dim=1682, **kwargs):
         super(Decoder, self).__init__(**kwargs)
         self.hidden_layers = [Dense(dim, activation='relu') for dim in hidden_dims]
 
-        # Layer output tanpa aktivasi (logit mentah) — Softmax diterapkan di train_step
-        self.reconstruction = Dense(output_dim, activation=None, name='decoder_output')
+        # Layer output menggunakan Sigmoid agar output berada di rentang 0-1
+        self.reconstruction = Dense(output_dim, activation='sigmoid', name='decoder_output')
 
     def call(self, inputs):
         x = inputs
@@ -78,16 +76,14 @@ class VAE(Model):
     """
     Model utama yang menggabungkan Encoder, Sampling, dan Decoder.
 
-    Perubahan dari versi MSE:
-    - Reconstruction loss diganti dari Masked MSE ke Masked Multinomial Log-Likelihood
-      mengikuti pendekatan Liang et al. (2018) "Variational Autoencoders for
-      Collaborative Filtering".
-    - Decoder mengeluarkan logit mentah, lalu log-softmax dihitung di train_step
-      untuk stabilitas numerik.
-    - Formula reconstruction loss:
-        loss = -sum( x_norm * log_softmax(logit) ) untuk sel yang ada rating
-      di mana x_norm adalah distribusi rating yang sudah dinormalisasi per pengguna
-      (agar jumlahnya = 1, sesuai asumsi multinomial).
+    Menggunakan Masked Multinomial Log-Likelihood sebagai reconstruction loss
+    mengikuti pendekatan Liang et al. (2018) "Variational Autoencoders for
+    Collaborative Filtering", namun dengan output Sigmoid (bukan Softmax) agar
+    prediksi tetap dalam skala 0-1 yang bisa didenormalisasi ke rating 1-5.
+
+    Formula reconstruction loss:
+        loss = -sum( x_norm * log(sigmoid_out + eps) ) untuk sel yang ada rating
+      di mana x_norm adalah distribusi rating yang sudah dinormalisasi per pengguna.
     - KL Annealing tetap digunakan via KLAnnealingCallback.
     """
     def __init__(self, encoder, decoder, beta=1.0, **kwargs):
@@ -112,7 +108,7 @@ class VAE(Model):
 
     def call(self, inputs):
         # Forward pass biasa untuk tahap evaluasi/testing
-        # Output berupa logit — gunakan tf.nn.softmax di luar jika butuh probabilitas
+        # Output Decoder adalah sigmoid (0-1), langsung bisa didenormalisasi ke skala rating
         z_mean, z_log_var = self.encoder(inputs)
         z = self.sampling([z_mean, z_log_var])
         return self.decoder(z)
@@ -125,9 +121,9 @@ class VAE(Model):
         Langkah:
         1. Encoder menghasilkan z_mean dan z_log_var
         2. Sampling menghasilkan z via reparameterization trick
-        3. Decoder menghasilkan logit mentah
-        4. log-softmax dihitung dari logit untuk stabilitas numerik
-        5. Reconstruction loss = -sum( x_norm * log_softmax ) per pengguna,
+        3. Decoder menghasilkan output Sigmoid (0-1)
+        4. Output Sigmoid dinormalisasi per pengguna menjadi distribusi
+        5. Reconstruction loss = -sum( x_norm * log(sigmoid_out + eps) ) per pengguna,
            hanya pada item yang ada rating (masking)
         6. KL loss dihitung seperti biasa
         7. Total loss = reconstruction_loss + beta * kl_loss
@@ -138,24 +134,27 @@ class VAE(Model):
         with tf.GradientTape() as tape:
             z_mean, z_log_var = self.encoder(data)
             z = self.sampling([z_mean, z_log_var])
-            logits = self.decoder(z)
+            reconstruction = self.decoder(z)
 
             # A. Reconstruction Loss (Masked Multinomial Log-Likelihood)
             # Membuat mask bernilai 1 jika rating ada, dan 0 jika kosong
             mask = tf.cast(data > 0, tf.float32)
 
             # Normalisasi rating per pengguna menjadi distribusi (jumlah per baris = 1)
-            # Hanya item yang dirating yang dihitung — item kosong diabaikan
+            # Hanya item yang dirating yang dihitung - item kosong diabaikan
             masked_data = data * mask
             row_sums    = tf.reduce_sum(masked_data, axis=1, keepdims=True) + 1e-8
             x_norm      = masked_data / row_sums
 
-            # Hitung log-softmax dari logit secara numerically stable
-            log_softmax = tf.nn.log_softmax(logits, axis=1)
+            # Normalisasi output Sigmoid per pengguna menjadi distribusi
+            # Ditambah eps kecil untuk mencegah log(0)
+            recon_masked = reconstruction * mask
+            recon_sums   = tf.reduce_sum(recon_masked, axis=1, keepdims=True) + 1e-8
+            recon_norm   = recon_masked / recon_sums
 
             # Hitung negative log-likelihood hanya pada item yang ada rating
-            # x_norm * log_softmax: nol otomatis untuk item yang tidak dirating
-            nll_per_item = -tf.reduce_sum(x_norm * log_softmax * mask, axis=1)
+            # x_norm * log(recon_norm): nol otomatis untuk item yang tidak dirating
+            nll_per_item = -tf.reduce_sum(x_norm * tf.math.log(recon_norm + 1e-8) * mask, axis=1)
 
             # Rata-rata loss di semua pengguna
             reconstruction_loss = tf.reduce_mean(nll_per_item)
