@@ -10,3 +10,8 @@ __pycache__/
 # Data files (optional - if you don't want to upload large CSVs)
 *.csv
 *.xlsx
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example

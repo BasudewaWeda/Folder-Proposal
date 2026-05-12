@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/USER/Documents/Folder-Proposal/Programs/venv/Scripts/python.exe *)",
+      "Bash(\"venv/Scripts/python.exe\" \"App/backend/inference.py\")",
+      "Bash(\"venv/Scripts/python.exe\" \"App/backend/data.py\")",
+      "Bash(\"C:/Users/USER/Documents/Folder-Proposal/Programs/venv/Scripts/python.exe\" -m pip install \"fastapi==0.115.5\" \"uvicorn[standard]==0.32.1\")",
+      "Bash(\"C:/Users/USER/Documents/Folder-Proposal/Programs/venv/Scripts/python.exe\" -m uvicorn app:app --port 8000 --log-level info)",
+      "Bash(npm --version)",
+      "Bash(npx --version)",
+      "Bash(npx --yes create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --no-turbopack --import-alias \"@/*\" --use-npm --skip-install)",
+      "Bash(npm install *)",
+      "Bash(curl *)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('posters_cache.json'\\)\\); print\\(len\\(d\\), 'entries'\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('posters_cache.json', encoding='utf-8'\\)\\); print\\(len\\(d\\), 'entries'\\)\")",
+      "Bash(python *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill *)"
+    ]
+  }
+}
