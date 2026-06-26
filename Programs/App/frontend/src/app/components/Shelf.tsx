@@ -9,9 +9,18 @@ type Props = {
   movies: MovieCardType[];
   showRating?: boolean;
   emptyMessage?: string;
+  userId?: number | null;
+  onRated?: () => void;
 };
 
-export default function Shelf({ title, movies, showRating, emptyMessage }: Props) {
+export default function Shelf({
+  title,
+  movies,
+  showRating,
+  emptyMessage,
+  userId,
+  onRated,
+}: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   function scrollBy(direction: 1 | -1) {
@@ -56,7 +65,13 @@ export default function Shelf({ title, movies, showRating, emptyMessage }: Props
         className="shelf-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-6 pb-2"
       >
         {movies.map((m) => (
-          <MovieCard key={m.movie_id} movie={m} showRating={showRating} />
+          <MovieCard
+            key={m.movie_id}
+            movie={m}
+            showRating={showRating}
+            userId={userId}
+            onRated={onRated}
+          />
         ))}
       </div>
     </section>

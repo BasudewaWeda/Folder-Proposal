@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   fetchByGenre,
@@ -72,6 +72,25 @@ export default function HomePage() {
     };
   }, [userId]);
 
+  // Silent refetch (no loading flash) after the user rates a movie.
+  const refresh = useCallback(() => {
+    if (userId === null) return;
+    Promise.all([
+      fetchRated(userId),
+      fetchRecommendations(userId, 50),
+      fetchByGenre(userId, 20),
+    ])
+      .then(([rated, recs, byGenre]) =>
+        setState({ kind: "ready", rated, recs, byGenre })
+      )
+      .catch((err: unknown) =>
+        setState({
+          kind: "error",
+          message: err instanceof Error ? err.message : "Gagal memuat data",
+        })
+      );
+  }, [userId]);
+
   return (
     <div className="flex flex-1 flex-col bg-black">
       <Navbar userId={userId} occupation={userInfo?.occupation} />
@@ -94,8 +113,14 @@ export default function HomePage() {
             <Hero userInfo={userInfo} userId={userId} ratedCount={state.rated.length} />
 
             <Shelf
-              title="Top Recommended for You"
+              title={
+                userInfo?.is_new
+                  ? "Film dengan Rating Tertinggi"
+                  : "Top Recommended for You"
+              }
               movies={state.recs}
+              userId={userId}
+              onRated={refresh}
               emptyMessage="Tidak ada rekomendasi yang tersedia."
             />
 
@@ -103,6 +128,8 @@ export default function HomePage() {
               title="Already Rated"
               movies={state.rated}
               showRating
+              userId={userId}
+              onRated={refresh}
               emptyMessage="User ini belum memiliki rating."
             />
 
@@ -111,6 +138,8 @@ export default function HomePage() {
                 key={genre}
                 title={`Best in ${capitalize(genre)}`}
                 movies={movies}
+                userId={userId}
+                onRated={refresh}
               />
             ))}
           </>
@@ -134,16 +163,19 @@ function Hero({
   userId: number | null;
   ratedCount: number;
 }) {
+  const isNew = userInfo?.is_new ?? false;
   return (
     <section className="px-6 pb-6 pt-2">
       <h1 className="text-3xl font-bold text-white sm:text-4xl">
-        Welcome back, User #{userId}
+        {isNew ? `Selamat datang, User #${userId}` : `Welcome back, User #${userId}`}
       </h1>
       <p className="mt-2 text-sm text-zinc-400">
         {userInfo
           ? `${userInfo.age} yrs · ${userInfo.gender} · ${userInfo.occupation}. `
           : ""}
-        {ratedCount} film sudah kamu rating. Berikut hasil prediksi dari model hybrid VAE + RSVD.
+        {isNew
+          ? "Akun baru — belum ada histori rating, jadi kami tampilkan film dengan rating tertinggi untuk memulai."
+          : `${ratedCount} film sudah kamu rating. Berikut hasil prediksi dari model hybrid VAE + RSVD.`}
       </p>
     </section>
   );

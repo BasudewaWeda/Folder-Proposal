@@ -15,6 +15,13 @@ export type LoginResponse = {
   age: number;
   gender: string;
   occupation: string;
+  is_new?: boolean;
+};
+
+export type RegisterRequest = {
+  age: number;
+  gender: string;
+  occupation: string;
 };
 
 export type GenreShelves = Record<string, MovieCard[]>;
@@ -41,6 +48,19 @@ export async function login(username: string, password: string): Promise<LoginRe
   return res.json();
 }
 
+export async function register(body: RegisterRequest): Promise<LoginResponse> {
+  const res = await fetch(`${API_BASE}/api/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail?.detail ?? `Registrasi gagal: ${res.status}`);
+  }
+  return res.json();
+}
+
 export function fetchRated(userId: number) {
   return getJson<MovieCard[]>(`/api/users/${userId}/rated`);
 }
@@ -53,4 +73,21 @@ export function fetchByGenre(userId: number, limit = 20) {
   return getJson<GenreShelves>(
     `/api/users/${userId}/recommendations/by-genre?limit=${limit}`
   );
+}
+
+export async function rateMovie(
+  userId: number,
+  itemId: number,
+  rating: number
+): Promise<MovieCard> {
+  const res = await fetch(`${API_BASE}/api/users/${userId}/ratings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_id: itemId, rating }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail?.detail ?? `Gagal menyimpan rating: ${res.status}`);
+  }
+  return res.json();
 }

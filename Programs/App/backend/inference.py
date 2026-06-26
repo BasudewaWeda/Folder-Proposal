@@ -29,18 +29,70 @@ EVAL_RESULTS_GLOB = str(DATA_DIR / "EvaluationResults" / "final_testing_results_
 
 MAX_RATING = 5.0
 
+# Ridge strength for RSVD fold-in. Shrinks a folded-in user's latent vector
+# toward 0 — large enough to stay stable when a user has only a few ratings,
+# small enough to recover taste once they've rated more. Tuned (sweep over a
+# sample of users) so folding a known user's training ratings reproduces their
+# trained RSVD prediction: at λ=4, corr ≈ 0.97, MAE ≈ 0.09 stars vs. trained.
+RSVD_FOLDIN_LAMBDA = 4.0
+
 
 @dataclass
 class Predictor:
     pred_full: np.ndarray       # (943, 1682) float32, denormalized to [1, 5]
+    pred_rsvd: np.ndarray       # (943, 1682) float32, RSVD-only, denormalized to [1, 5]
     train_data: np.ndarray      # (943, 1682) float32, normalized [0, 1]; > 0 = rated
     alpha: float                # ensemble weight (VAE proportion)
+    vae: object = None          # kept alive for live fold-in (re-encode new ratings)
+    # RSVD pieces needed to fold a user in (estimate U[u], b_u[u] on fixed items):
+    rsvd_mu: float = 0.0                       # global mean (normalized space)
+    rsvd_bi: np.ndarray = None                 # (n_items,) item biases (normalized)
+    rsvd_item_factors: np.ndarray = None       # (n_items, k) = V · diag(Σ)
+    rsvd_foldin_lambda: float = RSVD_FOLDIN_LAMBDA
 
     def is_rated(self, user_id_1based: int) -> np.ndarray:
         return self.train_data[user_id_1based - 1] > 0
 
     def predictions_for_user(self, user_id_1based: int) -> np.ndarray:
         return self.pred_full[user_id_1based - 1]
+
+    def predict_vae_foldin(self, rating_vec_norm: np.ndarray) -> np.ndarray:
+        """VAE prediction for an arbitrary (normalized) rating vector.
+
+        Runs one deterministic encoder→decoder pass (uses z_mean, dropout off)
+        so a user's freshly-given ratings flow straight into fresh predictions.
+        Returns a (num_items,) array denormalized and clipped to [1, 5].
+        """
+        import tensorflow as tf  # local import — keep module cold-import cheap
+        x = tf.constant(rating_vec_norm[None, :], dtype=tf.float32)
+        z_mean, _ = self.vae.encoder(x, training=False)
+        pred_norm = self.vae.decoder(z_mean, training=False)
+        pred = np.asarray(pred_norm)[0] * MAX_RATING
+        return np.clip(pred, 1.0, MAX_RATING).astype(np.float32)
+
+    def predict_rsvd_foldin(self, rating_vec_norm: np.ndarray) -> np.ndarray:
+        """RSVD prediction for an arbitrary user via fold-in (no retraining).
+
+        Holds the trained item factors (μ, b_i, Σ, V) fixed and solves a ridge
+        regression for just this user's bias b_u and latent vector U[u] from the
+        items they've rated, then scores all items. Returns a (n_items,) array
+        denormalized and clipped to [1, 5].
+        """
+        rated = np.where(rating_vec_norm > 0)[0]
+        if rated.size == 0:                       # nothing to fit -> bias baseline
+            base = self.rsvd_mu + self.rsvd_bi
+            return np.clip(base * MAX_RATING, 1.0, MAX_RATING).astype(np.float32)
+
+        X = self.rsvd_item_factors[rated]                         # (r, k)
+        y = rating_vec_norm[rated] - self.rsvd_mu - self.rsvd_bi[rated]  # (r,)
+        # Prepend a constant column so the intercept recovers b_u[u].
+        Xa = np.concatenate([np.ones((rated.size, 1), dtype=X.dtype), X], axis=1)
+        reg = np.eye(Xa.shape[1], dtype=X.dtype)
+        reg[0, 0] = 0.0                           # don't regularize the intercept
+        w = np.linalg.solve(Xa.T @ Xa + self.rsvd_foldin_lambda * reg, Xa.T @ y)
+        b_u, u_vec = w[0], w[1:]
+        pred_norm = self.rsvd_mu + b_u + self.rsvd_bi + self.rsvd_item_factors @ u_vec
+        return np.clip(pred_norm * MAX_RATING, 1.0, MAX_RATING).astype(np.float32)
 
 
 def _latest_eval_alpha() -> float:
@@ -94,6 +146,8 @@ def build_predictor() -> Predictor:
     mu, b_u, b_i, U, Sigma, V = _load_rsvd_components()
     pred_rsvd_norm = float(mu) + b_u[:, None] + b_i[None, :] + U @ Sigma @ V.T
     pred_rsvd      = np.clip(pred_rsvd_norm * MAX_RATING, 1.0, MAX_RATING).astype(np.float32)
+    # Effective item factors for fold-in: row i = Σ · V[i] (Σ is diagonal).
+    item_factors   = (V * np.diag(Sigma)[None, :]).astype(np.float32)
 
     print("[inference] Loading VAE and running encoder/decoder over training matrix ...")
     import tensorflow as tf  # local import to keep cold-import latency low
@@ -109,7 +163,16 @@ def build_predictor() -> Predictor:
     pred_full = np.clip(alpha * pred_vae + (1.0 - alpha) * pred_rsvd, 1.0, MAX_RATING).astype(np.float32)
     print(f"[inference] pred_full ready: shape={pred_full.shape}, dtype={pred_full.dtype}")
 
-    return Predictor(pred_full=pred_full, train_data=train_data, alpha=alpha)
+    return Predictor(
+        pred_full         = pred_full,
+        pred_rsvd         = pred_rsvd,
+        train_data        = train_data,
+        alpha             = alpha,
+        vae               = vae,
+        rsvd_mu           = float(mu),
+        rsvd_bi           = b_i.astype(np.float32),
+        rsvd_item_factors = item_factors,
+    )
 
 
 if __name__ == "__main__":

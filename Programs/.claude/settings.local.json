@@ -15,7 +15,30 @@
       "Bash(python -c \"import json; d=json.load\\(open\\('posters_cache.json', encoding='utf-8'\\)\\); print\\(len\\(d\\), 'entries'\\)\")",
       "Bash(python *)",
       "Bash(netstat -ano)",
-      "Bash(taskkill *)"
+      "Bash(taskkill *)",
+      "Bash(brew --version)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//opt/homebrew/opt/**)",
+      "Bash(brew list *)",
+      "Bash(brew install *)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Bash(/opt/homebrew/bin/npm --version)",
+      "Bash(python3.13 --version)",
+      "Bash(python3.13 -m venv venv)",
+      "Bash(./venv/bin/python --version)",
+      "Bash(./venv/bin/python -m pip install -r requirements.txt \"fastapi==0.115.5\" \"uvicorn[standard]==0.32.1\")",
+      "Bash(/opt/homebrew/bin/npm install *)",
+      "Bash(ls -la Programs/Data/SavedModels/)",
+      "Bash(ls Programs/Data/EvaluationResults/final_testing_results_*.json)",
+      "Bash(ls Programs/Data/TrainTest/train_data.npy)",
+      "Bash(ls Programs/Data/HyperParameters/tuning_progress_vae.json)",
+      "Bash(ls Programs/Data/ml-100k/u.item Programs/Data/ml-100k/u.data)",
+      "Bash(/Users/basudewaweda/Documents/Kuliah/Folder-Proposal/Programs/venv/bin/python -c \"import tensorflow, fastapi, uvicorn, numpy, pandas; print\\('imports-ok', tensorflow.__version__, numpy.__version__\\)\")",
+      "Bash(./venv/bin/python -c \"import tensorflow as tf, keras, numpy, fastapi, uvicorn, optuna, sklearn, scipy, pandas; print\\('tf', tf.__version__\\); print\\('keras', keras.__version__\\); print\\('numpy', numpy.__version__\\); print\\('fastapi', fastapi.__version__\\); print\\('pandas', pandas.__version__\\)\")",
+      "Read(//private/tmp/**)",
+      "Bash(pkill -f \"uvicorn app:app --port 8000\")",
+      "Bash(./node_modules/.bin/next --version)",
+      "Bash(npm run *)"
     ]
   }
 }

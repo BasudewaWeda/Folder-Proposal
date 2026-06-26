@@ -144,6 +144,29 @@ def build_rated_mask(ratings: pd.DataFrame) -> np.ndarray:
     return mask
 
 
+# Minimum number of ratings a movie needs before it can appear as a cold-start
+# pick — keeps a lone 5-star vote on an obscure film from outranking the classics.
+MIN_VOTES_COLD_START = 50
+
+
+def build_avg_rating_scores(
+    ratings: pd.DataFrame, min_votes: int = MIN_VOTES_COLD_START
+) -> np.ndarray:
+    """(N_ITEMS,) float32 — mean rating per movie on the 1..5 scale.
+
+    Movies rated fewer than `min_votes` times are set to -inf so they never
+    surface. Used to give freshly-registered users (who have no learned
+    factors) a sensible "Film dengan Rating Tertinggi" cold-start shelf.
+    """
+    grouped   = ratings.groupby("item_id")["rating"]
+    mean      = grouped.mean()
+    count     = grouped.count()
+    qualified = count.index[count >= min_votes]
+    scores    = np.full(N_ITEMS, -np.inf, dtype=np.float32)
+    scores[qualified.to_numpy() - 1] = mean.loc[qualified].to_numpy(dtype=np.float32)
+    return scores
+
+
 if __name__ == "__main__":
     cat = load_catalog()
     print(f"items   : {len(cat.items)}")

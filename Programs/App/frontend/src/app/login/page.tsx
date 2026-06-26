@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { login } from "@/lib/api";
@@ -82,7 +83,17 @@ export default function LoginPage() {
           {submitting ? "Signing in…" : "Sign In"}
         </button>
 
-        <p className="mt-6 text-xs text-zinc-500">
+        <p className="mt-6 text-sm text-zinc-400">
+          Belum punya akun?{" "}
+          <Link
+            href="/register"
+            className="font-semibold text-[color:var(--accent)] hover:underline"
+          >
+            Daftar di sini
+          </Link>
+        </p>
+
+        <p className="mt-3 text-xs text-zinc-500">
           Demo lokal — tidak ada otentikasi sungguhan. Username harus berupa angka.
         </p>
       </form>

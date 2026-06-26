@@ -1,18 +1,49 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import type { MovieCard as MovieCardType } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { rateMovie, type MovieCard as MovieCardType } from "@/lib/api";
 
 type Props = {
   movie: MovieCardType;
   onClose: () => void;
+  userId?: number | null;
+  onRated?: () => void;
+  userRating?: number | null;
 };
 
 const ANIM_MS = 250;
 
-export default function MovieModal({ movie, onClose }: Props) {
+export default function MovieModal({
+  movie,
+  onClose,
+  userId,
+  onRated,
+  userRating,
+}: Props) {
   const [visible, setVisible] = useState(false);
+  const [rating, setRating] = useState<number | null>(userRating ?? null);
+  const [hover, setHover] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const ratedDuringSession = useRef(false);
+
+  async function submitRating(star: number) {
+    if (userId == null || saving) return;
+    setSaving(true);
+    setRateError(null);
+    try {
+      await rateMovie(userId, movie.movie_id, star);
+      setRating(star);
+      setSaved(true);
+      ratedDuringSession.current = true;
+    } catch (err) {
+      setRateError(err instanceof Error ? err.message : "Gagal menyimpan rating");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setVisible(true));
@@ -35,7 +66,12 @@ export default function MovieModal({ movie, onClose }: Props) {
 
   function handleClose() {
     setVisible(false);
-    window.setTimeout(onClose, ANIM_MS);
+    window.setTimeout(() => {
+      onClose();
+      // Refresh shelves once the modal is gone, so a just-rated movie moves
+      // to "Already Rated" and recommendations update without a mid-modal flash.
+      if (ratedDuringSession.current) onRated?.();
+    }, ANIM_MS);
   }
 
   return (
@@ -104,10 +140,47 @@ export default function MovieModal({ movie, onClose }: Props) {
           </p>
 
           {movie.rating != null && (
-            <p className="mt-auto text-xs text-zinc-500">
+            <p className="text-xs text-zinc-500">
               Predicted / actual rating:{" "}
               <span className="text-amber-300">★ {movie.rating.toFixed(2)}</span>
             </p>
+          )}
+
+          {userId != null && (
+            <div className="mt-auto border-t border-white/10 pt-3">
+              <p className="mb-1 text-xs text-zinc-400">Beri rating kamu:</p>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => {
+                  const active = (hover ?? rating ?? 0) >= star;
+                  return (
+                    <button
+                      key={star}
+                      type="button"
+                      disabled={saving}
+                      aria-label={`Beri rating ${star} dari 5`}
+                      onMouseEnter={() => setHover(star)}
+                      onMouseLeave={() => setHover(null)}
+                      onClick={() => submitRating(star)}
+                      className={`text-2xl leading-none transition hover:scale-110 disabled:cursor-not-allowed disabled:opacity-50 ${
+                        active ? "text-amber-400" : "text-zinc-600"
+                      }`}
+                    >
+                      ★
+                    </button>
+                  );
+                })}
+                {rating != null && (
+                  <span className="ml-2 text-sm text-zinc-300">{rating}/5</span>
+                )}
+              </div>
+              {saving && <p className="mt-1 text-xs text-zinc-500">Menyimpan…</p>}
+              {saved && !saving && (
+                <p className="mt-1 text-xs text-emerald-400">✓ Rating tersimpan</p>
+              )}
+              {rateError && (
+                <p className="mt-1 text-xs text-red-400">{rateError}</p>
+              )}
+            </div>
           )}
         </div>
       </div>

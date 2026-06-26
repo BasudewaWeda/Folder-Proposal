@@ -71,6 +71,9 @@ Wait for `Ready in …ms` at http://localhost:3000.
 
 1. Open http://localhost:3000 — you'll be redirected to `/login`.
 2. Enter a **User ID between 1 and 943** as the username. Password is ignored.
+   Or click **"Daftar di sini"** to register a new user (id ≥ 944). New users have
+   no rating history, so they're shown the **highest-average-rated movies** as a
+   cold start. Registered users are saved in `backend/new_users.json`.
 3. The browse page shows:
    - **Top Recommended for You** — the 50 highest-predicted unrated movies
    - **Already Rated** — every movie this user actually rated, sorted by rating desc
@@ -78,6 +81,16 @@ Wait for `Ready in …ms` at http://localhost:3000.
 
 Hover over a shelf to reveal left/right scroll arrows. Click **Logout** to clear
 localStorage and return to `/login`.
+
+**Rating movies:** click any movie to open its modal and pick a 1–5 star rating.
+The rating is saved (`backend/user_ratings.json`) and folded into your
+recommendations live via a **unified hybrid fold-in** — `α·VAE_foldin +
+(1−α)·RSVD_foldin` for every user. Both halves re-estimate from your ratings (the
+RSVD half solves a ridge regression for your latent vector on the fixed item
+factors — no retraining), so recommendations respond for new *and* existing
+users. Rated movies move to the **Already Rated** shelf and drop out of
+recommendations. (A full retrain is only needed to add brand-new *movies* to the
+catalog, not to react to a user's ratings.)
 
 ## Tips
 

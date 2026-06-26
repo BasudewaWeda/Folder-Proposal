@@ -8,9 +8,16 @@ import MovieModal from "./MovieModal";
 type Props = {
   movie: MovieCardType;
   showRating?: boolean;
+  userId?: number | null;
+  onRated?: () => void;
 };
 
-export default function MovieCard({ movie, showRating = false }: Props) {
+export default function MovieCard({
+  movie,
+  showRating = false,
+  userId,
+  onRated,
+}: Props) {
   const [imgError, setImgError] = useState(false);
   const [open, setOpen] = useState(false);
   const hasPoster = !!movie.poster_url && !imgError;
@@ -63,7 +70,15 @@ export default function MovieCard({ movie, showRating = false }: Props) {
           )}
         </p>
       </button>
-      {open && <MovieModal movie={movie} onClose={() => setOpen(false)} />}
+      {open && (
+        <MovieModal
+          movie={movie}
+          onClose={() => setOpen(false)}
+          userId={userId}
+          onRated={onRated}
+          userRating={showRating ? movie.rating : null}
+        />
+      )}
     </div>
   );
 }

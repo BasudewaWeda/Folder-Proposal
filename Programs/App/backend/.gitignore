@@ -1,0 +1,10 @@
+# runtime demo data
+new_users.json
+user_ratings.json
+
+# python
+__pycache__/
+*.pyc
+
+# secrets
+.env
