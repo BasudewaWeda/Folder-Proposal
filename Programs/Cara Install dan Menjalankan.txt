@@ -1,0 +1,116 @@
+CARA INSTALL DAN MENJALANKAN PROGRAM
+====================================
+
+Catatan singkat buat nyiapin environment, jalanin notebook/script Python,
+sama nyalain aplikasi (backend + frontend). Semua perintah di bawah
+dijalankan lewat PowerShell / Terminal dari dalam folder Programs kecuali
+disebutkan lain.
+
+Yang perlu sudah terpasang di laptop:
+- Python 3.11 (yang dipakai di sini 3.11.8)
+- Node.js 18 ke atas (dipakai versi 22)
+
+
+1. SETUP PYTHON (VENV)
+----------------------
+
+Buka terminal di folder Programs ini, terus buat virtual environment:
+
+    python -m venv venv
+
+Aktifkan venv-nya.
+
+    - PowerShell:      .\venv\Scripts\Activate.ps1
+    - CMD:             venv\Scripts\activate.bat
+
+Kalau di PowerShell muncul error soal execution policy, jalankan ini dulu
+sekali aja lalu ulangi perintah activate di atas:
+
+    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+Kalau venv sudah aktif, di depan baris terminal bakal ada tulisan (venv).
+Sekarang install semua library yang dibutuhin:
+
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
+
+Install-nya lumayan lama karena ada TensorFlow. Sabar aja.
+
+
+2. JALANIN NOTEBOOK / SCRIPT PYTHON
+-----------------------------------
+
+Pastikan venv masih aktif (lihat tulisan (venv) di terminal). Buka Jupyter:
+
+    jupyter notebook
+
+atau kalau pakai VS Code, tinggal buka file .ipynb di folder Notebooks dan
+pilih kernel-nya yang dari venv tadi.
+
+Urutan notebook kalau mau jalanin dari awal:
+
+    1. DataPreprocessing.ipynb       -> nyiapin & bagi data train/test
+    2. HyperParameterTuningOptuna.ipynb  -> cari parameter terbaik (opsional, lama)
+    3. Training.ipynb                -> latih model, simpan bobotnya
+    4. CrossValidation.ipynb         -> validasi (opsional)
+    5. Testing.ipynb                 -> evaluasi hasil akhir
+
+Model hasil training dan file pendukung lain sudah tersimpan di folder Data,
+jadi kalau cuma mau nyalain aplikasi, langkah training ini nggak wajib
+diulang.
+
+Buat script biasa (.py) tinggal dijalanin langsung, contoh:
+
+    python Notebooks\GenerateTabelRekomendasi.py
+
+
+3. JALANIN BACKEND (FastAPI)
+----------------------------
+
+Backend baca model dari folder Data, jadi struktur folder jangan diubah.
+Masuk ke foldernya:
+
+    cd App\backend
+
+Pastikan venv-nya aktif, lalu jalanin server:
+
+    uvicorn app:app --reload --port 8000
+
+Backend jalan di http://localhost:8000
+Dokumentasi API-nya bisa dibuka di http://localhost:8000/docs
+
+Biarin terminal ini tetap kebuka selama aplikasi dipakai. Loading pertama
+agak lama karena model-nya dihitung dulu.
+
+
+4. JALANIN FRONTEND (Next.js)
+-----------------------------
+
+Buka terminal BARU (jangan yang dipakai backend), masuk ke folder frontend:
+
+    cd App\frontend
+
+Install dependency-nya (cukup sekali di awal):
+
+    npm install
+
+Jalanin:
+
+    npm run dev
+
+Frontend jalan di http://localhost:3000
+Buka alamat itu di browser.
+
+
+5. RINGKASAN URUTAN NYALAIN APLIKASI
+------------------------------------
+
+Kalau environment sudah pernah di-setup, tiap mau pakai aplikasi tinggal:
+
+    Terminal 1  ->  cd App\backend   ->  aktifkan venv  ->  uvicorn app:app --reload --port 8000
+    Terminal 2  ->  cd App\frontend  ->  npm run dev
+
+Terus buka http://localhost:3000 di browser.
+
+Frontend nyambung ke backend lewat http://localhost:8000, jadi backend harus
+dinyalain duluan biar datanya kebaca.

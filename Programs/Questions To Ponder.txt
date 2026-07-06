@@ -1,3 +1,0 @@
-1. Kenapa RSVD dibuat pakai numpy sedangkan VAE pakai tensorflow
-2. Kenapa train data dijadikan tensor pada testing, dan juga pas training
-3. Darimana asal bias user dan item pada RSVD
