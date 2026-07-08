@@ -38,7 +38,16 @@
       "Read(//private/tmp/**)",
       "Bash(pkill -f \"uvicorn app:app --port 8000\")",
       "Bash(./node_modules/.bin/next --version)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Read(//c/Users/Basudewa/Documents/Mata Kuliah/Data/**)",
+      "Bash(venv/Scripts/python.exe -c \"import fastapi, uvicorn, tensorflow, numpy; print\\('fastapi', fastapi.__version__\\); print\\('tf', tensorflow.__version__\\)\")",
+      "Bash(timeout 120 ../../../venv/Scripts/python.exe -c \"import app\")",
+      "Bash(\"C:/Users/Basudewa/Documents/Mata Kuliah/Ujian Proposal/Programs/venv/Scripts/python.exe\" -c \"import app; print\\('IMPORT OK'\\)\")",
+      "Bash(\"C:/Users/Basudewa/Documents/Mata Kuliah/Ujian Proposal/Programs/venv/Scripts/python.exe\" -m uvicorn app:app --port 8000)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(grep -q \"Ready\\\\|Application startup complete\\\\|Error\\\\|Traceback\" _uvicorn.log)",
+      "Bash(break)",
+      "Bash(\"venv/Scripts/python.exe\" -c \"import urllib.request, json; print\\(urllib.request.urlopen\\('http://localhost:8000/api/health'\\).read\\(\\).decode\\(\\)\\)\")"
     ]
   }
 }
