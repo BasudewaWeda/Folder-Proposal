@@ -15,21 +15,38 @@ const OCCUPATIONS = [
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [username, setUsername] = useState("");
   const [age, setAge] = useState("25");
   const [gender, setGender] = useState("M");
   const [occupation, setOccupation] = useState("other");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (username.trim().length < 3) {
+      setError("Username minimal 3 karakter");
+      return;
+    }
+    if (password.length < 4) {
+      setError("Password minimal 4 karakter");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Konfirmasi password tidak cocok");
+      return;
+    }
     setSubmitting(true);
     try {
       const info = await register({
+        username: username.trim(),
         age: Number(age),
         gender,
         occupation,
+        password,
       });
       if (typeof window !== "undefined") {
         window.localStorage.setItem("user_id", String(info.user_id));
@@ -56,8 +73,22 @@ export default function RegisterPage() {
         <h1 className="mb-6 text-3xl font-bold text-white">Buat Akun Baru</h1>
         <p className="mb-6 text-sm text-zinc-400">
           User baru belum punya histori rating, jadi kami mulai dengan film
-          berrating tertinggi. ID akan dibuat otomatis.
+          berrating tertinggi. Gunakan username dan password ini untuk login
+          berikutnya.
         </p>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-sm text-zinc-300">Username</span>
+          <input
+            type="text"
+            placeholder="Minimal 3 karakter"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+            minLength={3}
+            className="w-full rounded-md bg-zinc-800 px-4 py-3 text-white placeholder-zinc-500 outline-none ring-1 ring-transparent transition focus:bg-zinc-700 focus:ring-white/30"
+          />
+        </label>
 
         <label className="mb-4 block">
           <span className="mb-1 block text-sm text-zinc-300">Umur</span>
@@ -97,6 +128,33 @@ export default function RegisterPage() {
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-sm text-zinc-300">Password</span>
+          <input
+            type="password"
+            placeholder="Minimal 4 karakter"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={4}
+            className="w-full rounded-md bg-zinc-800 px-4 py-3 text-white placeholder-zinc-500 outline-none ring-1 ring-transparent transition focus:bg-zinc-700 focus:ring-white/30"
+          />
+        </label>
+
+        <label className="mb-6 block">
+          <span className="mb-1 block text-sm text-zinc-300">
+            Konfirmasi Password
+          </span>
+          <input
+            type="password"
+            placeholder="Ulangi password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            className="w-full rounded-md bg-zinc-800 px-4 py-3 text-white placeholder-zinc-500 outline-none ring-1 ring-transparent transition focus:bg-zinc-700 focus:ring-white/30"
+          />
         </label>
 
         {error && (

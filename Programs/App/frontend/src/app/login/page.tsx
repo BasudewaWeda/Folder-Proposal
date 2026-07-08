@@ -42,15 +42,19 @@ export default function LoginPage() {
       >
         <h1 className="mb-6 text-3xl font-bold text-white">Sign In</h1>
         <p className="mb-6 text-sm text-zinc-400">
-          Masukkan ID user MovieLens 100K (1–943). Password boleh diisi apa saja.
+          User dataset MovieLens 100K memakai username{" "}
+          <code className="rounded bg-zinc-800 px-1 text-zinc-200">User_1</code>…
+          <code className="rounded bg-zinc-800 px-1 text-zinc-200">User_943</code>{" "}
+          dengan password{" "}
+          <code className="rounded bg-zinc-800 px-1 text-zinc-200">movielens</code>
+          , atau pakai username &amp; password akun yang Anda daftarkan.
         </p>
 
         <label className="mb-4 block">
           <span className="sr-only">Username</span>
           <input
             type="text"
-            inputMode="numeric"
-            placeholder="User ID (e.g. 42)"
+            placeholder="Username (mis. User_42)"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
@@ -62,9 +66,10 @@ export default function LoginPage() {
           <span className="sr-only">Password</span>
           <input
             type="password"
-            placeholder="Password (ignored)"
+            placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            required
             className="w-full rounded-md bg-zinc-800 px-4 py-3 text-white placeholder-zinc-500 outline-none ring-1 ring-transparent transition focus:bg-zinc-700 focus:ring-white/30"
           />
         </label>
@@ -94,7 +99,7 @@ export default function LoginPage() {
         </p>
 
         <p className="mt-3 text-xs text-zinc-500">
-          Demo lokal — tidak ada otentikasi sungguhan. Username harus berupa angka.
+          Demo lokal — login memakai username dan password.
         </p>
       </form>
     </div>

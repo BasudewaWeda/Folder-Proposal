@@ -47,7 +47,9 @@
       "Bash(echo \"started pid $!\")",
       "Bash(grep -q \"Ready\\\\|Application startup complete\\\\|Error\\\\|Traceback\" _uvicorn.log)",
       "Bash(break)",
-      "Bash(\"venv/Scripts/python.exe\" -c \"import urllib.request, json; print\\(urllib.request.urlopen\\('http://localhost:8000/api/health'\\).read\\(\\).decode\\(\\)\\)\")"
+      "Bash(\"venv/Scripts/python.exe\" -c \"import urllib.request, json; print\\(urllib.request.urlopen\\('http://localhost:8000/api/health'\\).read\\(\\).decode\\(\\)\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(echo \"tsc done/exit=$?\")"
     ]
   }
 }

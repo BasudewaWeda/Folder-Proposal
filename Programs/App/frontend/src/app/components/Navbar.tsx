@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 
 type Props = {
-  userId: number | null;
+  username?: string;
   occupation?: string;
 };
 
-export default function Navbar({ userId, occupation }: Props) {
+export default function Navbar({ username, occupation }: Props) {
   const router = useRouter();
 
   function logout() {
@@ -27,9 +27,9 @@ export default function Navbar({ userId, occupation }: Props) {
       </div>
 
       <div className="flex items-center gap-3 text-sm">
-        {userId !== null && (
+        {username && (
           <span className="text-zinc-300">
-            User <span className="font-semibold text-white">#{userId}</span>
+            <span className="font-semibold text-white">{username}</span>
             {occupation && <span className="ml-1 text-zinc-500">({occupation})</span>}
           </span>
         )}

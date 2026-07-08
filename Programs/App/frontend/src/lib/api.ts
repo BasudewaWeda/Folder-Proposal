@@ -12,6 +12,7 @@ export type MovieCard = {
 
 export type LoginResponse = {
   user_id: number;
+  username: string;
   age: number;
   gender: string;
   occupation: string;
@@ -19,9 +20,11 @@ export type LoginResponse = {
 };
 
 export type RegisterRequest = {
+  username: string;
   age: number;
   gender: string;
   occupation: string;
+  password: string;
 };
 
 export type GenreShelves = Record<string, MovieCard[]>;

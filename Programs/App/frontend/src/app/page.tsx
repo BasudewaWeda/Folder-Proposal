@@ -93,7 +93,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-1 flex-col bg-black">
-      <Navbar userId={userId} occupation={userInfo?.occupation} />
+      <Navbar username={userInfo?.username} occupation={userInfo?.occupation} />
 
       <main className="flex-1 pb-16">
         {state.kind === "loading" && (
@@ -110,7 +110,7 @@ export default function HomePage() {
 
         {state.kind === "ready" && (
           <>
-            <Hero userInfo={userInfo} userId={userId} ratedCount={state.rated.length} />
+            <Hero userInfo={userInfo} ratedCount={state.rated.length} />
 
             <Shelf
               title={
@@ -156,18 +156,17 @@ function capitalize(s: string): string {
 
 function Hero({
   userInfo,
-  userId,
   ratedCount,
 }: {
   userInfo: LoginResponse | null;
-  userId: number | null;
   ratedCount: number;
 }) {
   const isNew = userInfo?.is_new ?? false;
+  const name = userInfo?.username ?? "";
   return (
     <section className="px-6 pb-6 pt-2">
       <h1 className="text-3xl font-bold text-white sm:text-4xl">
-        {isNew ? `Selamat datang, User #${userId}` : `Welcome back, User #${userId}`}
+        {isNew ? `Selamat datang, ${name}` : `Welcome back, ${name}`}
       </h1>
       <p className="mt-2 text-sm text-zinc-400">
         {userInfo

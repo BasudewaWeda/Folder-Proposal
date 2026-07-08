@@ -9,6 +9,7 @@ Docs: http://localhost:8000/docs
 """
 from __future__ import annotations
 
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -28,7 +29,7 @@ from data import (
 )
 from inference import MAX_RATING, Predictor, build_predictor
 from ratings_store import RatingsStore
-from users_store import NewUserStore
+from users_store import DEFAULT_PASSWORD, NewUserStore
 
 
 # populated in `lifespan`; keys: predictor, catalog, ratings, rated_mask,
@@ -151,43 +152,79 @@ def _scores_excluding_rated(user_id: int) -> np.ndarray:
 
 # ----- endpoints -----
 
+# Dataset users log in with the auto-assigned username "User_<id>".
+_DATASET_USERNAME_RE = re.compile(r"^User_(\d+)$", re.IGNORECASE)
+
+
+def _dataset_username_id(username: str) -> Optional[int]:
+    """Return the MovieLens user id encoded in "User_<id>", else ``None``."""
+    m = _DATASET_USERNAME_RE.match(username.strip())
+    return int(m.group(1)) if m else None
+
+
 class LoginRequest(BaseModel):
     username: str
-    password: Optional[str] = None   # accepted but ignored — demo only
+    password: str
 
 
 class RegisterRequest(BaseModel):
+    username: str
     age: int = 25
     gender: str = "M"
     occupation: str = "other"
+    password: str
 
 
 @app.post("/api/login")
 def login(req: LoginRequest):
-    try:
-        user_id = int(req.username)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Username harus berupa angka")
-    if user_id in _catalog().users.index:
+    username = req.username.strip()
+
+    # 1) A user registered in-app owns a free-form username.
+    rec = _new_users().by_username(username)
+    if rec is not None:
+        if not _new_users().check_password(rec["user_id"], req.password):
+            raise HTTPException(status_code=401, detail="Password salah")
+        return {**rec, "is_new": True}
+
+    # 2) Original MovieLens users log in as "User_<id>" + default password.
+    user_id = _dataset_username_id(username)
+    if user_id is not None and user_id in _catalog().users.index:
+        if req.password != DEFAULT_PASSWORD:
+            raise HTTPException(status_code=401, detail="Password salah")
         info = _catalog().users.loc[user_id]
         return {
             "user_id"   : user_id,
+            "username"  : f"User_{user_id}",
             "age"       : int(info["age"]),
             "gender"    : str(info["gender"]),
             "occupation": str(info["occupation"]),
             "is_new"    : False,
         }
-    new = _new_users().get(user_id)
-    if new is not None:
-        return {**new, "is_new": True}
-    raise HTTPException(status_code=401, detail=f"User {user_id} tidak ada di dataset")
+
+    raise HTTPException(status_code=401, detail="Username tidak ditemukan")
 
 
 @app.post("/api/register")
 def register(req: RegisterRequest):
     """Create a new demo user (id >= 944) served cold-start recommendations."""
+    username = req.username.strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username minimal 3 karakter")
+    if _dataset_username_id(username) is not None:
+        raise HTTPException(
+            status_code=400,
+            detail='Username dengan format "User_<angka>" dipakai user dataset',
+        )
+    if _new_users().username_taken(username):
+        raise HTTPException(status_code=409, detail="Username sudah dipakai")
+    if not req.password or len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Password minimal 4 karakter")
     info = _new_users().register(
-        age=req.age, gender=req.gender, occupation=req.occupation
+        username=username,
+        age=req.age,
+        gender=req.gender,
+        occupation=req.occupation,
+        password=req.password,
     )
     return {**info, "is_new": True}
 
